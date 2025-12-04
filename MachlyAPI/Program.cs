@@ -106,14 +106,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-    
-    // Redirección por si quedó en caché la URL anterior
-    app.MapGet("/scalar/v1", () => Results.Redirect("/swagger")).ExcludeFromDescription();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
+
+// Redirección de raíz a Swagger
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
+
+// Redirección por si quedó en caché la URL anterior
+app.MapGet("/scalar/v1", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 
 app.UseHttpsRedirection();
