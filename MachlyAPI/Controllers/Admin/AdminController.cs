@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using MachlyAPI.DTOs.Admin;
+using MachlyAPI.DTOs.Auth;
 using MachlyAPI.DTOs.Bookings;
 using MachlyAPI.DTOs.Machines;
 using MachlyAPI.Models;
@@ -97,6 +98,43 @@ public class AdminController : ControllerBase
         await _mongoDb.Users.ReplaceOneAsync(u => u.Id == id, user);
 
         return Ok(new { message = $"Provider {(dto.Verified ? "verified" : "unverified")} successfully" });
+    }
+
+    [HttpPut("users/{id}/role")]
+    public async Task<ActionResult<UserRoleResponseDto>> UpdateUserRoleAsAdmin(string id, [FromBody] UpdateRoleDto dto)
+    {
+        var user = await _mongoDb.Users.Find(u => u.Id == id).FirstOrDefaultAsync();
+        if (user == null)
+        {
+            return NotFound(new { message = "User not found" });
+        }
+
+        // Validación: No permite cambiar el rol del último ADMIN
+        if (user.Role == UserRole.ADMIN && dto.Role != (int)UserRole.ADMIN)
+        {
+            var adminCount = await _mongoDb.Users.CountDocumentsAsync(u => u.Role == UserRole.ADMIN);
+            if (adminCount <= 1)
+            {
+                return BadRequest(new { message = "Cannot change the role of the last admin" });
+            }
+        }
+
+        // Convertir el int a UserRole enum
+        user.Role = (UserRole)dto.Role;
+        await _mongoDb.Users.ReplaceOneAsync(u => u.Id == id, user);
+
+        return Ok(new UserRoleResponseDto
+        {
+            Id = user.Id!,
+            Name = user.Name,
+            Lastname = user.Lastname,
+            Email = user.Email,
+            Phone = user.Phone,
+            Role = (int)user.Role,
+            PhotoUrl = user.PhotoUrl,
+            Verified = user.Verified,
+            CreatedAt = user.CreatedAt
+        });
     }
 
     [HttpDelete("users/{id}")]

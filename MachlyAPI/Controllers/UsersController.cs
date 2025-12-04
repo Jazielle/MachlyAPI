@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using MachlyAPI.DTOs.Auth;
 using MachlyAPI.Models;
+using MachlyAPI.Models.Enums;
 using MachlyAPI.Services;
 
 namespace MachlyAPI.Controllers;
@@ -109,6 +110,70 @@ public class UsersController : ControllerBase
         await _mongoDb.Users.ReplaceOneAsync(u => u.Id == id, user);
 
         return Ok(new { url = photoUrl });
+    }
+
+    [HttpPut("{id}/role")]
+    public async Task<ActionResult<UserRoleResponseDto>> UpdateUserRole(string id, [FromBody] UpdateRoleDto dto)
+    {
+        var currentUserId = GetUserId();
+        
+        // Solo el mismo usuario puede cambiar su propio rol
+        if (currentUserId != id)
+        {
+            return Forbid();
+        }
+
+        var user = await _mongoDb.Users.Find(u => u.Id == id).FirstOrDefaultAsync();
+        if (user == null)
+        {
+            return NotFound(new { message = "User not found" });
+        }
+
+        // Validación: No permite cambiar a ADMIN (0)
+        if (dto.Role == (int)UserRole.ADMIN)
+        {
+            return BadRequest(new { message = "Cannot change role to ADMIN" });
+        }
+
+        // Validación: Solo permite cambiar de RENTER (2) a PROVIDER (1)
+        if (user.Role == UserRole.RENTER && dto.Role == (int)UserRole.PROVIDER)
+        {
+            user.Role = UserRole.PROVIDER;
+        }
+        else if (user.Role == UserRole.PROVIDER && dto.Role == (int)UserRole.RENTER)
+        {
+            // No permite cambiar de PROVIDER a RENTER
+            return BadRequest(new { message = "Cannot change role from PROVIDER to RENTER" });
+        }
+        else if (user.Role == UserRole.RENTER && dto.Role == (int)UserRole.RENTER)
+        {
+            // Ya es RENTER, no hay cambio
+            return BadRequest(new { message = "User is already a RENTER" });
+        }
+        else if (user.Role == UserRole.PROVIDER && dto.Role == (int)UserRole.PROVIDER)
+        {
+            // Ya es PROVIDER, no hay cambio
+            return BadRequest(new { message = "User is already a PROVIDER" });
+        }
+        else
+        {
+            return BadRequest(new { message = "Invalid role change" });
+        }
+
+        await _mongoDb.Users.ReplaceOneAsync(u => u.Id == id, user);
+
+        return Ok(new UserRoleResponseDto
+        {
+            Id = user.Id!,
+            Name = user.Name,
+            Lastname = user.Lastname,
+            Email = user.Email,
+            Phone = user.Phone,
+            Role = (int)user.Role,
+            PhotoUrl = user.PhotoUrl,
+            Verified = user.Verified,
+            CreatedAt = user.CreatedAt
+        });
     }
 }
 
