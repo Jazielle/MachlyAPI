@@ -39,18 +39,6 @@ public class BookingsController : ControllerBase
             return NotFound(new { message = "Machine not found" });
         }
 
-        // Verificar disponibilidad
-        var hasConflict = machine.Calendar.Any(c =>
-            (dto.Start >= c.Start && dto.Start < c.End) ||
-            (dto.End > c.Start && dto.End <= c.End) ||
-            (dto.Start <= c.Start && dto.End >= c.End)
-        );
-
-        if (hasConflict)
-        {
-            return BadRequest(new { message = "Machine is not available for selected dates" });
-        }
-
         // Calcular precio
         var totalPrice = _priceCalc.CalculatePrice(machine, dto.Start, dto.End, dto.Quantity);
 
@@ -103,6 +91,92 @@ public class BookingsController : ControllerBase
         });
     }
 
+    [HttpGet("my")]
+    [Authorize(Roles = "RENTER")]
+    public async Task<ActionResult<List<BookingDetailDto>>> GetMyBookings()
+    {
+        var renterId = GetUserId();
+
+        var bookings = await _mongoDb.Bookings
+            .Find(b => b.RenterId == renterId)
+            .ToListAsync();
+
+        var result = new List<BookingDetailDto>();
+        foreach (var booking in bookings)
+        {
+            var machine = await _mongoDb.Machines.Find(m => m.Id == booking.MachineId).FirstOrDefaultAsync();
+            var provider = await _mongoDb.Users.Find(u => u.Id == booking.ProviderId).FirstOrDefaultAsync();
+
+            result.Add(new BookingDetailDto
+            {
+                Id = booking.Id!,
+                MachineId = booking.MachineId,
+                MachineTitle = machine?.Title ?? "",
+                MachinePhoto = machine?.Photos.FirstOrDefault(),
+                RenterId = renterId,
+                RenterName = "",
+                ProviderId = booking.ProviderId,
+                ProviderName = provider?.Name ?? "",
+                Start = booking.Start,
+                End = booking.End,
+                Status = booking.Status.ToString(),
+                TotalPrice = booking.TotalPrice,
+                CreatedAt = booking.CreatedAt
+            });
+        }
+
+        return Ok(result);
+    }
+
+    [HttpGet("machine/{machineId}")]
+    [Authorize(Roles = "PROVIDER,ADMIN")]
+    public async Task<ActionResult<List<BookingDetailDto>>> GetMachineBookings(string machineId)
+    {
+        var userId = GetUserId();
+
+        // Verificar que la máquina existe
+        var machine = await _mongoDb.Machines.Find(m => m.Id == machineId).FirstOrDefaultAsync();
+        if (machine == null)
+        {
+            return NotFound(new { message = "Machine not found" });
+        }
+
+        // Verificar que el usuario es el proveedor de la máquina o es admin
+        if (machine.ProviderId != userId && !User.IsInRole("ADMIN"))
+        {
+            return Forbid();
+        }
+
+        var bookings = await _mongoDb.Bookings
+            .Find(b => b.MachineId == machineId)
+            .ToListAsync();
+
+        var result = new List<BookingDetailDto>();
+        foreach (var booking in bookings)
+        {
+            var renter = await _mongoDb.Users.Find(u => u.Id == booking.RenterId).FirstOrDefaultAsync();
+
+            result.Add(new BookingDetailDto
+            {
+                Id = booking.Id!,
+                MachineId = booking.MachineId,
+                MachineTitle = machine.Title,
+                MachinePhoto = machine.Photos.FirstOrDefault(),
+                RenterId = booking.RenterId,
+                RenterName = renter?.Name ?? "",
+                ProviderId = booking.ProviderId,
+                ProviderName = "",
+                Start = booking.Start,
+                End = booking.End,
+                Status = booking.Status.ToString(),
+                TotalPrice = booking.TotalPrice,
+                CreatedAt = booking.CreatedAt
+            });
+        }
+
+        return Ok(result);
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<BookingDetailDto>> GetBooking(string id)
     {
@@ -152,16 +226,22 @@ public class BookingsController : ControllerBase
         });
     }
 
-    [HttpPut("{id}/status")]
-    [Authorize(Roles = "PROVIDER")]
+    [HttpPatch("{id}/status")]
+    [Authorize(Roles = "PROVIDER,ADMIN")]
     public async Task<ActionResult> UpdateStatus(string id, [FromBody] UpdateStatusDto dto)
     {
-        var providerId = GetUserId();
+        var userId = GetUserId();
 
-        var booking = await _mongoDb.Bookings.Find(b => b.Id == id && b.ProviderId == providerId).FirstOrDefaultAsync();
+        var booking = await _mongoDb.Bookings.Find(b => b.Id == id).FirstOrDefaultAsync();
         if (booking == null)
         {
             return NotFound(new { message = "Booking not found" });
+        }
+
+        // Verificar que el usuario es el proveedor o admin
+        if (booking.ProviderId != userId && !User.IsInRole("ADMIN"))
+        {
+            return Forbid();
         }
 
         booking.Status = dto.Status;

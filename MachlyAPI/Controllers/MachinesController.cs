@@ -84,15 +84,17 @@ public class MachinesController : ControllerBase
             return NotFound(new { message = "Machine not found" });
         }
 
-        // Retornar solo fechas futuras o actuales
+        // Retornar SOLO reservas reales (status = "reserved"), NO fechas bloqueadas
         var today = DateTime.UtcNow.Date;
-        var activeCalendar = machine.Calendar.Where(c => c.End >= today).ToList();
+        var activeBookings = machine.Calendar
+            .Where(c => c.Status == "reserved" && c.End >= today)
+            .ToList();
 
-        return Ok(activeCalendar);
+        return Ok(activeBookings);
     }
 
     [HttpGet("disponibilidad")]
-    public async Task<ActionResult<bool>> CheckAvailability(
+    public async Task<ActionResult> CheckAvailability(
         [FromQuery] string machineId,
         [FromQuery] DateTime start,
         [FromQuery] DateTime end)
@@ -103,13 +105,20 @@ public class MachinesController : ControllerBase
             return NotFound(new { message = "Machine not found" });
         }
 
-        var isBusy = machine.Calendar.Any(c =>
-            (start >= c.Start && start < c.End) ||
+        // Verificar solo reservas reales (status = "reserved")
+        var hasConflict = machine.Calendar.Any(c =>
+            c.Status == "reserved" &&
+            ((start >= c.Start && start < c.End) ||
             (end > c.Start && end <= c.End) ||
-            (start <= c.Start && end >= c.End)
+            (start <= c.Start && end >= c.End))
         );
 
-        return Ok(!isBusy);
+        if (hasConflict)
+        {
+            return Ok(new { available = false, reason = "overlap" });
+        }
+
+        return Ok(new { available = true });
     }
 
     private MachineDetailDto MapToDto(Machine m, User? provider)
